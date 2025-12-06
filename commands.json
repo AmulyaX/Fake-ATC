@@ -1,0 +1,84 @@
+{
+  "AT": "OK",
+
+  "AT+GMI": "GenericManufacturer",
+  "AT+GMM": "GenericModem",
+  "AT+GMR": "Firmware 1.0",
+  "AT+GSN": "000000000000000",
+  "AT+CGMI": "GenericManufacturer",
+  "AT+CGMM": "GenericModem",
+  "AT+CGMR": "Firmware 1.0",
+  "AT+CGSN": "000000000000000",
+
+  "AT+CIMI": "001010123456789",
+  "AT+CCID": "8900000000000000000",
+  "AT+CPIN?": "+CPIN: READY",
+
+  "AT+CSQ": "+CSQ: 20,99",
+  "+csq_response": "+CSQ: 20,99",
+  "AT+CSQ_ALT": "{csq_response}",
+
+  "AT+COPS?": "+COPS: 0,0,\"GenericOperator\",7",
+  "AT+COPS=0": "OK",
+
+  "AT+CREG?": "+CREG: 0,1",
+  "AT+CGREG?": "+CGREG: 0,1",
+  "AT+CEREG?": "+CEREG: 0,1",
+
+  "AT+QSPN": "+QSPN: GenericOperator",
+
+  "AT+QNWINFO": "LTE BAND1 EARFCN100",
+  "AT+QCSQ": "+QCSQ: LTE,20,99,140,15",
+
+  "AT+QENG=0": "OK",
+  "AT+QENG=1": "OK",
+  "AT+QENG?": "+QENG: Generic Engineering Info",
+
+  "AT+QCFG=\"band\"": "+QCFG: \"band\", generalband",
+  "AT+QCFG=\"nwscanmode\"": "+QCFG: \"nwscanmode\",0",
+
+  "AT+CFUN?": "+CFUN: 1",
+  "AT+CFUN=1": "OK",
+
+  "AT+CGATT?": "+CGATT: 1",
+  "AT+CGATT=1": "OK",
+
+  "AT+QICSGP=1,1": "OK",
+  "AT+QICSGP?": "+QICSGP: 1,1,\"internet\",\"\",\"\",0",
+
+  "AT+QIACT=1": "OK",
+  "AT+QIACT?": "+QIACT: 1,1,1,\"10.0.0.5\"",
+
+  "AT+QIDEACT=1": "OK",
+
+  "AT+PING": "PONG {arg}",
+
+
+  "AT+QPING": "+QPING: 0,32,50,64",
+  "AT+QPING=1": "+QPING: 0,32,50,64",
+  "AT+QPING=1,\"{arg}\"": "+QPING: 0,32,50,64",
+
+  "AT+QPINGNEW": "+QPINGNEW: 0,32,50,64",
+  "AT+QPINGNEW=1": "+QPINGNEW: 0,32,50,64",
+  "AT+QPINGNEW=1,\"{arg}\"": "+QPINGNEW: 0,32,50,64",
+
+
+  "AT+QGPS?": "+QGPS: 0",
+  "AT+QGPS=1": "OK",
+  "AT+QGPSEND": "OK",
+  "AT+QGPSLOC?": "+QGPSLOC: 123456.00,51.5000,0.1200,1.0,50.0",
+
+
+  "AT+QFUPL": "CONNECT",
+  "AT+QFDEL": "OK",
+  "AT+QFLST": "+QFLST: 0",
+
+  "AT+QSCLK?": "+QSCLK: 0",
+  "AT+QSCLK=0": "OK",
+
+  "AT+QPOWD": "OK",
+  "AT+QPOWD=1": "POWERED DOWN",
+
+
+  "AT+HELLO": "Hello"
+}

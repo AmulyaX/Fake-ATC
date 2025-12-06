@@ -1,2 +1,2 @@
 # Fake-ATC
-Docker Container that mimics an AT controlled device 
+Python binary that mimics an AT controlled device 
