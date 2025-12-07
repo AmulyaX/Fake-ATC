@@ -115,18 +115,37 @@ def start_fake_atc(commands, target_link):
     create_symlink(target_link, slave_name)
     print("Press Ctrl+C to stop.")
 
+    buffer = ""
+
     while True:
         data = os.read(master_fd, 1024)
         if not data:
             continue
 
-        line = data.decode(errors="ignore").strip()
-        if not line:
-            continue
+        chunk = data.decode(errors="ignore")
+        buffer += chunk
 
-        name, args = parse_at(line)
-        reply = build_response(name, args, commands)
-        os.write(master_fd, reply.encode())
+        # Process only when Enter is pressed
+        while "\n" in buffer or "\r" in buffer:
+            # Split on either newline or carriage return
+            if "\r" in buffer:
+                line, buffer = buffer.split("\r", 1)
+            else:
+                line, buffer = buffer.split("\n", 1)
+
+            line = line.strip()
+
+            # Ignore empty lines
+            if not line:
+                continue
+
+            # Debug print for what we received
+            print("RX:", repr(line))
+
+            name, args = parse_at(line)
+            reply = build_response(name, args, commands)
+
+            os.write(master_fd, reply.encode())
 
 
 if __name__ == "__main__":
