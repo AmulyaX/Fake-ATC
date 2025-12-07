@@ -13,11 +13,19 @@
 
   "AT+CIMI": "001010123456789\r\nOK",
   "AT+CCID": "8900000000000000000\r\nOK",
-  "AT+CPIN?": "+CPIN: READY\r\nOK",
+  "AT+CPIN?": " +CPIN: READY\r\nOK",
 
-  "AT+CSQ": "+CSQ: 20,99\r\nOK",
+  "AT+CSQ": {
+    "delay": 150,
+    "resp": "+CSQ: 20,99\r\nOK"
+  },
+
   "+csq_response": "+CSQ: 20,99",
-  "AT+CSQ_ALT": "{csq_response}\r\nOK",
+
+  "AT+CSQ_ALT": {
+    "delay": 150,
+    "resp": "{csq_response}\r\nOK"
+  },
 
   "AT+COPS?": "+COPS: 0,0,\"GenericOperator\",7\r\nOK",
   "AT+COPS=0": "OK",
@@ -29,11 +37,19 @@
   "AT+QSPN": "+QSPN: GenericOperator\r\nOK",
 
   "AT+QNWINFO": "+QNWINFO: \"LTE\",\"GenericOperator\",\"B1\",100\r\nOK",
-  "AT+QCSQ": "+QCSQ: LTE,20,99,140,15\r\nOK",
+
+  "AT+QCSQ": {
+    "delay": 120,
+    "resp": "+QCSQ: LTE,20,99,140,15\r\nOK"
+  },
 
   "AT+QENG=0": "OK",
   "AT+QENG=1": "OK",
-  "AT+QENG?": "+QENG: Generic Engineering Info\r\nOK",
+
+  "AT+QENG?": {
+    "delay": 200,
+    "resp": "+QENG: Generic Engineering Info\r\nOK"
+  },
 
   "AT+QCFG=\"band\"": "+QCFG: \"band\", generalband\r\nOK",
   "AT+QCFG=\"nwscanmode\"": "+QCFG: \"nwscanmode\",0\r\nOK",
@@ -41,41 +57,102 @@
   "AT+CFUN?": "+CFUN: 1\r\nOK",
   "AT+CFUN=1": "OK",
 
-  "AT+CGATT?": "+CGATT: 1\r\nOK",
-  "AT+CGATT=1": "OK",
+  "AT+CGATT?": {
+    "delay": 150,
+    "resp": "+CGATT: 1\r\nOK"
+  },
+
+  "AT+CGATT=1": {
+    "delay": 300,
+    "resp": "OK"
+  },
 
   "AT+QICSGP=1,1": "OK",
-  "AT+QICSGP?": "+QICSGP: 1,1,\"internet\",\"\",\"\",0\r\nOK",
 
-  "AT+QIACT=1": "OK",
-  "AT+QIACT?": "+QIACT: 1,1,1,\"10.0.0.5\"\r\nOK",
+  "AT+QICSGP?": {
+    "delay": 200,
+    "resp": "+QICSGP: 1,1,\"internet\",\"\",\"\",0\r\nOK"
+  },
 
-  "AT+QIDEACT=1": "OK",
+  "AT+QIACT=1": {
+    "delay": 800,
+    "resp": "OK"
+  },
 
-  "AT+PING": "PONG {arg}\r\nOK",
+  "AT+QIACT?": {
+    "delay": 500,
+    "resp": "+QIACT: 1,1,1,\"10.0.0.5\"\r\nOK"
+  },
 
-  "AT+QPING": "+QPING: 0,32,50,64\r\nOK",
-  "AT+QPING=1": "+QPING: 0,32,50,64\r\nOK",
-  "AT+QPING=1,\"{arg}\"": "+QPING: 0,32,50,64\r\nOK",
+  "AT+QIDEACT=1": {
+    "delay": 400,
+    "resp": "OK"
+  },
+
+  "AT+PING": {
+    "delay": 200,
+    "resp": "PONG {arg}\r\nOK"
+  },
+
+  "AT+QPING": {
+    "delay": 400,
+    "resp": "+QPING: 0,32,50,64\r\nOK"
+  },
+  "AT+QPING=1": {
+    "delay": 400,
+    "resp": "+QPING: 0,32,50,64\r\nOK"
+  },
+  "AT+QPING=1,\"{arg}\"": {
+    "delay": 400,
+    "resp": "+QPING: 0,32,50,64\r\nOK"
+  },
 
   "AT+QPINGNEW": "+QPINGNEW: 0,32,50,64\r\nOK",
   "AT+QPINGNEW=1": "+QPINGNEW: 0,32,50,64\r\nOK",
   "AT+QPINGNEW=1,\"{arg}\"": "+QPINGNEW: 0,32,50,64\r\nOK",
 
   "AT+QGPS?": "+QGPS: 0\r\nOK",
-  "AT+QGPS=1": "OK",
-  "AT+QGPSEND": "OK",
-  "AT+QGPSLOC?": "+QGPSLOC: 123456.00,51.5000,0.1200,1.0,50.0\r\nOK",
 
-  "AT+QFUPL": "CONNECT",
+  "AT+QGPS=1": {
+    "delay": 1200,
+    "resp": "OK"
+  },
+
+  "AT+QGPSEND": {
+    "delay": 500,
+    "resp": "OK"
+  },
+
+  "AT+QGPSLOC?": {
+    "delay": 900,
+    "resp": "+QGPSLOC: 123456.00,51.5000,0.1200,1.0,50.0\r\nOK"
+  },
+
+  "AT+QFUPL": {
+    "delay": 300,
+    "resp": "CONNECT"
+  },
+
   "AT+QFDEL": "OK",
-  "AT+QFLST": "+QFLST: 0\r\nOK",
+
+  "AT+QFLST": {
+    "delay": 200,
+    "resp": "+QFLST: 0\r\nOK"
+  },
 
   "AT+QSCLK?": "+QSCLK: 0\r\nOK",
   "AT+QSCLK=0": "OK",
 
   "AT+QPOWD": "OK",
-  "AT+QPOWD=1": "POWERED DOWN",
+
+  "AT+QPOWD=1": {
+    "delay": 600,
+    "resp": "POWERED DOWN"
+  },
+
+  "AT+DELAY": {
+  "internal": true
+  },
 
   "AT+HELLO": "Hello\r\nOK"
 }

@@ -93,23 +93,51 @@ def parse_at(line: str):
     return line.upper(), []
 
 
-def build_response(name: str, args, commands: dict) -> str:
-    """Return the exact response from commands.json, wrapped with CRLF."""
-    resp = commands.get(name)
-    if resp is None:
-        log_error(f"No match for command: {name}")
-        return "\r\nERROR\r\n"
+def build_response(name: str, args, commands: dict):
+    """
+    Supports:
+    1. Standard commands from commands.json
+    2. Per-command delay (via { "delay": X, "resp": "..." })
+    3. Special dynamic command: AT+DELAY=ms  (induced delay)
+    """
 
+    # ---------- SPECIAL COMMAND: AT+DELAY=xxx ----------
+    if name == "AT+DELAY":
+        if args and args[0].isdigit():
+            delay_ms = int(args[0])
+            log_info(f"Induced delay: {delay_ms} ms")
+            return delay_ms, "\r\nOK\r\n"
+        return 0, "\r\nERROR\r\n"
+
+    # ---------- NORMAL COMMANDS ----------
+    entry = commands.get(name)
+
+    if entry is None:
+        log_error(f"No match for command: {name}")
+        return 0, "\r\nERROR\r\n"
+
+    delay_ms = 0
+
+    # JSON object case
+    if isinstance(entry, dict):
+        delay_ms = entry.get("delay", 0)
+        resp = entry.get("resp", "")
+    else:
+        # Simple string case
+        resp = entry
+
+    # Replace {arg}
     if "{arg}" in resp and args:
         resp = resp.replace("{arg}", args[0])
 
+    # Replace placeholders
     for key, val in commands.items():
         placeholder = "{" + key.lower().replace("+", "") + "}"
         if placeholder in resp:
             resp = resp.replace(placeholder, val)
 
-    return f"\r\n{resp}\r\n"
-
+    final = f"\r\n{resp}\r\n"
+    return delay_ms, final
 
 # -----------------------
 # Cleanup
@@ -239,7 +267,11 @@ def main():
                 log_rx(line)
 
                 name, args_list = parse_at(line)
-                resp = build_response(name, args_list, commands)
+                delay_ms, resp = build_response(name, args_list, commands)
+
+                if delay_ms > 0:
+                    log_info(f"Delaying {delay_ms} ms for {name}")
+                    time.sleep(delay_ms / 1000.0)
 
                 log_tx(resp.replace("\r", "\\r").replace("\n", "\\n"))
                 os.write(master_fd, resp.encode())
