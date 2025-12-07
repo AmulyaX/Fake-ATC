@@ -40,7 +40,7 @@ def build_response(name, args, commands):
             if placeholder in resp:
                 resp = resp.replace(placeholder, val)
 
-        return f"\r\n{resp}\r\nOK\r\n"
+        return f"\r\n{resp}\r\n"
 
     return "\r\nERROR\r\n"
 
