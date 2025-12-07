@@ -80,14 +80,7 @@ Triggered by `AT+CFUN=1,1`:
 - Close old PTY  
 - Allocate new PTY  
 - Update symlink  
-- Restart modem banner  
-
-## Installation
-```
-git clone https://github.com/yourname/atc.git
-cd atc
-chmod +x fake_atc.py
-```
+- Restart modem banner
 
 ## Usage
 
