@@ -17,10 +17,9 @@ slave_fd = None
 VERBOSE = False
 
 EMULATOR_NAME = "AT Simulator"
-EMULATOR_VERSION = "1.0.0"
-STARTUP_DELAY_SEC = 1    # seconds
+EMULATOR_VERSION = "1.1.0"
+STARTUP_DELAY_SEC = 1
 
-# ANSI colours
 RESET = "\033[0m"
 COLOR_INFO = "\033[32m"
 COLOR_ERROR = "\033[31m"
@@ -29,75 +28,120 @@ COLOR_TX = "\033[33m"
 COLOR_HIGHLIGHT = "\033[92m"
 
 
-# -----------------------
-# Utility / Logging
-# -----------------------
+# ------------------------------------------------------------
+# Logging System
+# ------------------------------------------------------------
 
 def use_color() -> bool:
+    """Return True if stderr supports ANSI colors (TTY output)."""
     return sys.stderr.isatty()
 
 
-def _log(level: str, msg: str, color: str = ""):
+def ts():
+    """Return a formatted timestamp (HH:MM:SS.mmm) for log entries."""
+    return datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+
+def clean_for_log(s: str):
+    """
+    Convert a multi-line modem response into a clean single-line form.
+    This is necessary because the real PTY output uses CRLF blocks,
+    but logs should remain readable and compact.
+    """
+    lines = [line.strip() for line in s.strip().splitlines() if line.strip()]
+    return " | ".join(lines)
+
+
+ARROWS = {"RX": "←", "TX": "→", "INF": "•", "ERR": "!"}
+
+
+def _log(direction: str, msg: str, color: str):
+    """
+    Core formatted logger for RX/TX/INFO/ERR.
+    Produces aligned, timestamped, bracketed log lines such as:
+
+    [12:30:10.123]  [→ TX]  OK
+
+    This gives a clean trace similar to real modem diagnostic tools.
+    """
     if not VERBOSE:
         return
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    level_str = f"{color}[{level}]{RESET}" if (use_color() and color) else f"[{level}]"
-    print(f"{ts}  {level_str}  {msg}", file=sys.stderr, flush=True)
+
+    timestamp = f"\033[36m{ts()}\033[0m" if use_color() else ts()
+    arrow = ARROWS.get(direction, "?")
+
+    if use_color():
+        block = f"{color}{arrow} {direction}{RESET}"
+    else:
+        block = f"{arrow} {direction}"
+
+    print(f"[{timestamp}]  [{block:<6}]  {msg}", file=sys.stderr, flush=True)
 
 
-def log_info(msg: str): _log("INFO", msg, COLOR_INFO)
-def log_error(msg: str): _log("ERROR", msg, COLOR_ERROR)
-def log_rx(msg: str): _log("RX", msg, COLOR_RX)
-def log_tx(msg: str): _log("TX", msg, COLOR_TX)
+def log_rx(msg): _log("RX", msg, COLOR_RX)
+
+
+def log_tx(msg): _log("TX", msg, COLOR_TX)
+
+
+def log_info(msg): _log("INF", msg, COLOR_INFO)
+
+
+def log_error(msg): _log("ERR", msg, COLOR_ERROR)
 
 
 def banner(msg: str, color: str = ""):
+    """Print startup/runtime status messages (not part of verbose debug)."""
     if use_color() and color:
-        print(f"{color}{msg}{RESET}", file=sys.stderr, flush=True)
+        print(f"{color}{msg}{RESET}", file=sys.stderr)
     else:
-        print(msg, file=sys.stderr, flush=True)
+        print(msg, file=sys.stderr)
 
 
 def important(msg: str):
+    """Highlight key runtime info such as PTY paths."""
     if use_color():
-        print(f"{COLOR_HIGHLIGHT}{msg}{RESET}", file=sys.stderr, flush=True)
+        print(f"{COLOR_HIGHLIGHT}{msg}{RESET}", file=sys.stderr)
     else:
-        print(msg, file=sys.stderr, flush=True)
+        print(msg, file=sys.stderr)
 
 
 def get_kernel_info() -> str:
+    """Retrieve kernel information for banner display."""
     try:
         return subprocess.check_output(["uname", "-a"]).decode().strip()
     except Exception:
         return f"{platform.system()} {platform.release()}"
 
 
-# -----------------------
-# Reboot Logic
-# -----------------------
+# ------------------------------------------------------------
+# Reboot Handling
+# ------------------------------------------------------------
 
 def reboot_modem(args):
+    """
+    Perform a full modem reboot operation:
+      - Close existing PTY descriptors
+      - Allocate a fresh PTY pair
+      - Recreate the symlink so clients see the new PTY
+      - Display reboot startup info
+
+    This simulates hardware-level modem reboot behaviour triggered by AT+CFUN=1,1.
+    """
     global master_fd, slave_fd, active_link
 
     log_info("Reboot initiated...")
 
-    # Close old PTY
     try:
-        if master_fd:
-            os.close(master_fd)
-        if slave_fd:
-            os.close(slave_fd)
+        if master_fd: os.close(master_fd)
+        if slave_fd: os.close(slave_fd)
     except Exception:
         pass
 
-    # Create new PTY
     master_fd_new, slave_fd_new = pty.openpty()
     slave_name_new = os.ttyname(slave_fd_new)
+    master_fd, slave_fd = master_fd_new, slave_fd_new
 
-    master_fd = master_fd_new
-    slave_fd = slave_fd_new
-
-    # Recreate symlink
     if args.target:
         try:
             if os.path.exists(args.target):
@@ -107,7 +151,6 @@ def reboot_modem(args):
         except Exception:
             pass
 
-    # Reboot banner
     banner("\n========================================")
     banner(f"{EMULATOR_NAME}  (Rebooted)")
     banner(f"Version: {EMULATOR_VERSION}")
@@ -120,90 +163,88 @@ def reboot_modem(args):
     log_info("Reboot complete. Modem ready.")
 
 
-# -----------------------
-# Command Processor
-# -----------------------
+# ------------------------------------------------------------
+# AT Command Processing
+# ------------------------------------------------------------
 
 def load_commands(path="commands.json"):
+    """Load AT response definitions from the JSON file."""
     with open(path) as f:
         return json.load(f)
 
 
 def parse_at(line: str):
+    """
+    Parse an incoming AT command into:
+      - command name (uppercase)
+      - list of arguments if present
+    """
     line = line.strip()
     if not line:
         return "", []
-
     if "=" in line:
         name, arg_str = line.split("=", 1)
-        args = [a.strip() for a in arg_str.split(",")]
-    else:
-        name = line
-        args = []
-
-    return name.upper(), args
+        return name.upper(), [x.strip() for x in arg_str.split(",")]
+    return line.upper(), []
 
 
 def build_response(name: str, args, commands: dict):
     """
-    Supports:
-    - Standard commands
-    - Per-command delay (via {"delay": X, "resp": "..."})
-    - Special dynamic command: AT+DELAY=ms
-    - Full reboot: AT+CFUN=1,1
+    Resolve an AT command into:
+      - delay in milliseconds
+      - modem-style response string (CRLF wrapped)
+
+    Handles:
+      - AT+DELAY=n → artificial latency injection
+      - AT+CFUN=1,1 → full reboot trigger
+      - Per-command delays defined in commands.json
+      - Placeholder substitution inside responses
     """
 
-    # ---------- SPECIAL COMMAND: AT+DELAY=xxx ----------
     if name == "AT+DELAY":
         if args and args[0].isdigit():
-            delay_ms = int(args[0])
-            log_info(f"Induced delay: {delay_ms} ms")
-            return delay_ms, "\r\nOK\r\n"
+            d = int(args[0])
+            log_info(f"Induced delay: {d} ms")
+            return d, "\r\nOK\r\n"
         return 0, "\r\nERROR\r\n"
 
-    # ---------- SPECIAL COMMAND: AT+CFUN=1,1 (Reboot) ----------
-    if name == "AT+CFUN" and len(args) == 2 and args[0] == "1" and args[1] == "1":
+    if name == "AT+CFUN" and args == ["1", "1"]:
         log_info("AT+CFUN=1,1 → Reboot requested")
-        return -1, "\r\nOK\r\n"   # -1 triggers reboot
+        return -1, "\r\nOK\r\n"
 
-    # Normal CFUN commands return OK
     if name == "AT+CFUN":
         return 0, "\r\nOK\r\n"
 
-    # ---------- NORMAL COMMANDS ----------
     entry = commands.get(name)
-
     if entry is None:
         log_error(f"No match for command: {name}")
         return 0, "\r\nERROR\r\n"
 
-    delay_ms = 0
-
-    if isinstance(entry, dict):
-        delay_ms = entry.get("delay", 0)
-        resp = entry.get("resp", "")
-    else:
-        resp = entry
+    delay_ms = entry.get("delay", 0) if isinstance(entry, dict) else 0
+    resp = entry["resp"] if isinstance(entry, dict) else entry
 
     if "{arg}" in resp and args:
         resp = resp.replace("{arg}", args[0])
 
-    # Placeholder replacements
     for key, val in commands.items():
         placeholder = "{" + key.lower().replace("+", "") + "}"
         if placeholder in resp:
             resp = resp.replace(placeholder, val)
 
-    final = f"\r\n{resp}\r\n"
-    return delay_ms, final
+    return delay_ms, f"\r\n{resp}\r\n"
 
 
-# -----------------------
+# ------------------------------------------------------------
 # Cleanup
-# -----------------------
+# ------------------------------------------------------------
 
 def cleanup(signum=None, frame=None):
+    """
+    Ensure the PTY and symlink are removed correctly before exit.
+    This prevents stale symlinks and locked file descriptors.
+    """
     global active_link, master_fd, slave_fd
+
     log_info("Shutting down emulator...")
 
     if active_link and os.path.islink(active_link):
@@ -221,33 +262,35 @@ def cleanup(signum=None, frame=None):
     sys.exit(0)
 
 
-# -----------------------
+# ------------------------------------------------------------
 # Main
-# -----------------------
+# ------------------------------------------------------------
 
 def main():
+    """
+    Initialize emulator, create the PTY device, display startup info,
+    then enter the main read/process/write loop for handling AT commands.
+    """
     global active_link, master_fd, slave_fd, VERBOSE
 
     parser = argparse.ArgumentParser(
         prog="AT Simulator",
-        description="Lightweight modem AT command simulator using a pseudo-tty.",
+        description="Modem-like AT command emulator using PTY.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument("-t", "--target", help="Create symlink to PTY", default=None)
-    parser.add_argument("-c", "--commands", help="Path to commands.json", default="commands.json")
-    parser.add_argument("-v", "--verbose", help="Enable RX/TX logging", action="store_true")
+    parser.add_argument("-t", "--target", help="Symlink to expose PTY under a stable path")
+    parser.add_argument("-c", "--commands", help="JSON file with AT responses", default="commands.json")
+    parser.add_argument("-v", "--verbose", help="Enable debug logs", action="store_true")
 
     args = parser.parse_args()
     VERBOSE = args.verbose
 
     commands = load_commands(args.commands)
 
-    # Create PTY
     master_fd, slave_fd = pty.openpty()
     slave_name = os.ttyname(slave_fd)
 
-    # Create symlink
     if args.target:
         try:
             if os.path.exists(args.target):
@@ -257,7 +300,6 @@ def main():
         except Exception:
             pass
 
-    # Startup banner
     banner("========================================")
     banner(f"{EMULATOR_NAME}  (v{EMULATOR_VERSION})")
     banner("----------------------------------------")
@@ -269,13 +311,12 @@ def main():
     if args.target:
         important(f"Symlink: {args.target} → {slave_name}")
     banner("----------------------------------------")
-    banner("Verbose Logging: " + ("ENABLED" if VERBOSE else "DISABLED"))
+    banner(f"Verbose Logging: {'ENABLED' if VERBOSE else 'DISABLED'}")
     banner("Booting modem...")
     time.sleep(STARTUP_DELAY_SEC)
     banner("Modem Ready. Connect your AT client.")
     banner("========================================\n")
 
-    # Main loop
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
@@ -285,24 +326,22 @@ def main():
         try:
             data = os.read(master_fd, 1024)
             if not data:
-                log_info("Master side closed.")
+                log_info("Master closed.")
                 break
 
             buffer += data
 
+            # Process complete AT lines
             while b"\r" in buffer or b"\n" in buffer:
-                idx_r = buffer.find(b"\r")
-                idx_n = buffer.find(b"\n")
-                sep_idx = min(i for i in [idx_r, idx_n] if i != -1)
-
-                line_bytes = buffer[:sep_idx]
-                buffer = buffer[sep_idx + 1:]
+                idxs = [x for x in (buffer.find(b"\r"), buffer.find(b"\n")) if x != -1]
+                sep = min(idxs)
+                line_bytes = buffer[:sep]
+                buffer = buffer[sep + 1:]
 
                 try:
                     line = line_bytes.decode(errors="ignore").strip()
                 except Exception:
                     line = ""
-
                 if not line:
                     continue
 
@@ -310,20 +349,18 @@ def main():
                 name, args_list = parse_at(line)
                 delay_ms, resp = build_response(name, args_list, commands)
 
-                # Handle reboot
                 if delay_ms == -1:
-                    log_tx(resp.replace("\r", "\\r"))
+                    log_tx(clean_for_log(resp))
                     os.write(master_fd, resp.encode())
                     time.sleep(1)
                     reboot_modem(args)
                     continue
 
-                # Normal delay
-                if delay_ms > 0:
-                    log_info(f"Delaying {delay_ms} ms for {name}")
+                if delay_ms:
+                    log_info(f"Delay {delay_ms} ms")
                     time.sleep(delay_ms / 1000.0)
 
-                log_tx(resp.replace("\r", "\\r"))
+                log_tx(clean_for_log(resp))
                 os.write(master_fd, resp.encode())
 
         except KeyboardInterrupt:
