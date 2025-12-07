@@ -7,162 +7,251 @@ import argparse
 import platform
 import signal
 import sys
+import time
+import subprocess
+from datetime import datetime
+
+active_link = None
+master_fd = None
+slave_fd = None
+VERBOSE = False
+
+EMULATOR_NAME = "AT Simulator"
+EMULATOR_VERSION = "1.0.0"
+STARTUP_DELAY_SEC = 1    # seconds
+
+# ANSI colours
+RESET = "\033[0m"
+COLOR_INFO = "\033[32m"   # green
+COLOR_ERROR = "\033[31m"  # red
+COLOR_RX = "\033[34m"     # blue
+COLOR_TX = "\033[33m"     # yellow
+COLOR_HIGHLIGHT = "\033[92m"  # bright green
 
 
-active_link = None  # store the symlink we create
+# -----------------------
+# Utility / Logging
+# -----------------------
 
+def use_color() -> bool:
+    return sys.stderr.isatty()
+
+
+def _log(level: str, msg: str, color: str = ""):
+    if not VERBOSE:
+        return
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    level_str = f"{color}[{level}]{RESET}" if (use_color() and color) else f"[{level}]"
+    print(f"{ts}  {level_str}  {msg}", file=sys.stderr, flush=True)
+
+
+def log_info(msg: str): _log("INFO", msg, COLOR_INFO)
+def log_error(msg: str): _log("ERROR", msg, COLOR_ERROR)
+def log_rx(msg: str): _log("RX", msg, COLOR_RX)
+def log_tx(msg: str): _log("TX", msg, COLOR_TX)
+
+
+def banner(msg: str, color: str = ""):
+    """Always-on printing for startup info."""
+    if use_color() and color:
+        print(f"{color}{msg}{RESET}", file=sys.stderr, flush=True)
+    else:
+        print(msg, file=sys.stderr, flush=True)
+
+
+def important(msg: str):
+    """Highlighted important info like port output."""
+    if use_color():
+        print(f"{COLOR_HIGHLIGHT}{msg}{RESET}", file=sys.stderr, flush=True)
+    else:
+        print(msg, file=sys.stderr, flush=True)
+
+
+def get_kernel_info() -> str:
+    try:
+        return subprocess.check_output(["uname", "-a"]).decode().strip()
+    except Exception:
+        return f"{platform.system()} {platform.release()}"
+
+
+# -----------------------
+# AT Processing
+# -----------------------
 
 def load_commands(path="commands.json"):
     with open(path) as f:
         return json.load(f)
 
 
-def parse_at(line):
+def parse_at(line: str):
     line = line.strip()
+    if not line:
+        return "", []
     if "=" in line:
         name, arg_str = line.split("=", 1)
-        args = [a.strip() for a in arg_str.split(",")]
-    else:
-        name = line
-        args = []
-    return name.upper(), args
+        return name.upper(), [a.strip() for a in arg_str.split(",")]
+    return line.upper(), []
 
 
-def build_response(name, args, commands):
-    if name in commands:
-        resp = commands[name]
+def build_response(name: str, args, commands: dict) -> str:
+    """Return the exact response from commands.json, wrapped with CRLF."""
+    resp = commands.get(name)
+    if resp is None:
+        log_error(f"No match for command: {name}")
+        return "\r\nERROR\r\n"
 
-        if "{arg}" in resp and args:
-            resp = resp.replace("{arg}", args[0])
+    if "{arg}" in resp and args:
+        resp = resp.replace("{arg}", args[0])
 
-        for key, val in commands.items():
-            placeholder = "{" + key.lower().replace("+", "") + "}"
-            if placeholder in resp:
-                resp = resp.replace(placeholder, val)
+    for key, val in commands.items():
+        placeholder = "{" + key.lower().replace("+", "") + "}"
+        if placeholder in resp:
+            resp = resp.replace(placeholder, val)
 
-        return f"\r\n{resp}\r\n"
-
-    return "\r\nERROR\r\n"
+    return f"\r\n{resp}\r\n"
 
 
-def cleanup_symlink():
-    global active_link
+# -----------------------
+# Cleanup
+# -----------------------
+
+def cleanup(signum=None, frame=None):
+    global active_link, master_fd, slave_fd
+    log_info("Shutting down emulator...")
+
     if active_link and os.path.islink(active_link):
         try:
             os.unlink(active_link)
-            print(f"\nCleaned link: {active_link}")
-        except PermissionError:
-            print(f"\nCould not delete symlink {active_link} (permission denied)")
-    else:
-        print("\nNo active link to clean.")
+            log_info(f"Removed symlink {active_link}")
+        except Exception as e:
+            log_error(f"Could not remove symlink: {e}")
 
+    try:
+        if master_fd: os.close(master_fd)
+        if slave_fd: os.close(slave_fd)
+    except Exception:
+        pass
 
-def signal_handler(sig, frame):
-    print("\nReceived interrupt. Shutting down Fake-ATC...")
-    cleanup_symlink()
     sys.exit(0)
 
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+# -----------------------
+# Main
+# -----------------------
 
+def main():
+    global active_link, master_fd, slave_fd, VERBOSE
 
-def create_symlink(target_link, pty_path):
-    global active_link
-    os_name = platform.system()
+    parser = argparse.ArgumentParser(
+        prog="AT Simulator",
+        description="Lightweight modem AT command simulator using a pseudo-tty.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
-    print("Detected OS:", os_name)
-    print("Fake-ATC PTY:", pty_path)
-    print("Link target:", target_link)
-    print()
+    parser.add_argument(
+        "-t", "--target",
+        help="Create a symlink pointing to the PTY (e.g. /tmp/fake_modem)",
+        default=None,
+    )
+    parser.add_argument(
+        "-c", "--commands",
+        help="Path to commands.json containing AT command responses",
+        default="commands.json",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        help="Enable detailed RX/TX logging to STDERR",
+        action="store_true",
+    )
 
-    # Delete previous symlink if exists
-    if os.path.islink(target_link):
-        try:
-            os.unlink(target_link)
-        except PermissionError:
-            print("Permission denied removing previous link.")
-            return
+    args = parser.parse_args()
+    VERBOSE = args.verbose
 
-    # macOS
-    if os_name == "Darwin":
-        os.symlink(pty_path, target_link)
-        print("Linked successfully. Use", target_link, "as your serial port.")
-        active_link = target_link
-        return
+    commands = load_commands(args.commands)
 
-    # Linux
-    if os_name == "Linux":
-        try:
-            os.symlink(pty_path, target_link)
-        except PermissionError:
-            print("Permission denied creating symlink. Try sudo.")
-            return
-
-        print("Linked successfully. Use", target_link, "as your serial port.")
-        active_link = target_link
-        return
-
-    print("Unsupported OS:", os_name)
-
-
-def start_fake_atc(commands, target_link):
+    # Create PTY
     master_fd, slave_fd = pty.openpty()
     slave_name = os.ttyname(slave_fd)
 
-    print("Fake-ATC PTY created at:", slave_name)
+    # Symlink
+    if args.target:
+        if os.path.exists(args.target):
+            try: os.remove(args.target)
+            except Exception: pass
+        os.symlink(slave_name, args.target)
+        active_link = args.target
 
-    create_symlink(target_link, slave_name)
-    print("Press Ctrl+C to stop.")
+    # ---------------------------
+    # Startup Information
+    # ---------------------------
+    banner("========================================")
+    banner(f"{EMULATOR_NAME}  (v{EMULATOR_VERSION})")
+    banner("----------------------------------------")
+    banner(f"Platform: {platform.system()} {platform.release()}")
+    banner(f"Python:   {platform.python_version()}")
+    banner(f"Kernel:   {get_kernel_info()}")
+    banner("----------------------------------------")
 
-    buffer = ""
+    important(f"PTY Port: {slave_name}")
+    if args.target:
+        important(f"Symlink:  {args.target} → {slave_name}")
+
+    banner("----------------------------------------")
+    banner("Verbose Logging: " + ("ENABLED" if VERBOSE else "DISABLED"))
+    banner("Booting modem...")
+    time.sleep(STARTUP_DELAY_SEC)
+    banner("Modem Ready. Connect your AT client.")
+    banner("========================================\n")
+
+    # ---------------------------
+    # Main loop
+    # ---------------------------
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+
+    buffer = b""
 
     while True:
-        data = os.read(master_fd, 1024)
-        if not data:
-            continue
+        try:
+            data = os.read(master_fd, 1024)
+            if not data:
+                log_info("Master side closed.")
+                break
 
-        chunk = data.decode(errors="ignore")
-        buffer += chunk
+            buffer += data
 
-        # Process only when Enter is pressed
-        while "\n" in buffer or "\r" in buffer:
-            # Split on either newline or carriage return
-            if "\r" in buffer:
-                line, buffer = buffer.split("\r", 1)
-            else:
-                line, buffer = buffer.split("\n", 1)
+            while b"\r" in buffer or b"\n" in buffer:
+                idx_r = buffer.find(b"\r")
+                idx_n = buffer.find(b"\n")
+                sep_idx = min(i for i in [idx_r, idx_n] if i != -1)
 
-            line = line.strip()
+                line_bytes = buffer[:sep_idx]
+                buffer = buffer[sep_idx + 1:]
 
-            # Ignore empty lines
-            if not line:
-                continue
+                try:
+                    line = line_bytes.decode(errors="ignore").strip()
+                except Exception:
+                    line = ""
 
-            # Debug print for what we received
-            print("RX:", repr(line))
+                if not line:
+                    continue
 
-            name, args = parse_at(line)
-            reply = build_response(name, args, commands)
+                log_rx(line)
 
-            os.write(master_fd, reply.encode())
+                name, args_list = parse_at(line)
+                resp = build_response(name, args_list, commands)
+
+                log_tx(resp.replace("\r", "\\r").replace("\n", "\\n"))
+                os.write(master_fd, resp.encode())
+
+        except KeyboardInterrupt:
+            break
+        except OSError as e:
+            log_error(f"OSError: {e}")
+            break
+
+    cleanup()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--target", type=str, help="Path to link Fake-ATC PTY to")
-    parser.add_argument("-c", "--config", type=str, default="commands.json", help="Commands JSON file")
-    args = parser.parse_args()
-
-    os_name = platform.system()
-
-    if args.target:
-        target_link = args.target
-    else:
-        if os_name == "Linux":
-            target_link = "/dev/ttyUSB0"
-        else:
-            target_link = "./ttyUSB0"
-
-    commands = load_commands(args.config)
-    start_fake_atc(commands, target_link)
+    main()
